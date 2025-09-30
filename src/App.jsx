@@ -24,6 +24,7 @@ const pmtilesPath = '/swisstopo.base.vt.pmtiles';
 const pmtilesMinZoom = 0;
 const pmtilesMaxZoom = 20;
 
+// PMTiles vector layer
 const PMTilesVectorLayer = ({ url, attribution, minZoom, maxZoom }) => {
   const context = useLeafletContext();
 
@@ -48,6 +49,7 @@ const PMTilesVectorLayer = ({ url, attribution, minZoom, maxZoom }) => {
   return null;
 };
 
+// Map logger
 function MapLogger() {
   const map = useMapEvents({
     zoomend: () => console.log(`Current zoom level: ${map.getZoom()}`),
@@ -55,7 +57,7 @@ function MapLogger() {
   return null;
 }
 
-// --- Leaflet-Geoman Component with per-feature colors ---
+// Leaflet-Geoman with per-feature color and save/load
 const GeomanControlsWithColor = () => {
   const map = useMap();
   const [selectedLayer, setSelectedLayer] = useState(null);
@@ -79,45 +81,35 @@ const GeomanControlsWithColor = () => {
       markerStyle: { draggable: true },
     });
 
-    // Store a reference to all drawn layers
     const layers = [];
 
-    // Handle new shapes
+    // Creation
     map.on('pm:create', (e) => {
       const layer = e.layer;
       const initialColor = color;
-
-      // Assign individual color to the layer
       layer.feature = { properties: { color: initialColor } };
       layer.setStyle({ color: initialColor, fillColor: initialColor });
-
-      // Save the layer reference
       layers.push(layer);
-
-      // Select the newly created layer
       setSelectedLayer(layer);
 
-      // Bind popup showing current color
       const updatePopup = () =>
         layer.bindPopup(
           `<div style="font-family: sans-serif; max-width: 200px;">
             <p><strong>Type:</strong> ${e.shape}</p>
-            <p><strong>Color:</strong> <span style="color:${layer.feature.properties.color}">${layer.feature.properties.color}</span></p>
-            <p>Click a feature to select and change its color.</p>
+            <p><strong>Color:</strong> <span style="color:${initialColor}">${initialColor}</span></p>
+            <p>Click feature to edit color.</p>
           </div>`
         );
-
       updatePopup();
       layer.openPopup();
 
-      // Make layer clickable to allow selection for color change
       layer.on('click', () => {
         setSelectedLayer(layer);
-        setColor(layer.feature.properties.color); // sync color picker
+        setColor(layer.feature.properties.color);
       });
     });
 
-    // Handle removal
+    // Removal
     map.on('pm:remove', (e) => {
       if (selectedLayer === e.layer) setSelectedLayer(null);
       const index = layers.indexOf(e.layer);
@@ -129,24 +121,96 @@ const GeomanControlsWithColor = () => {
       map.off('pm:create');
       map.off('pm:remove');
     };
-  }, [map]);
+  }, [map, selectedLayer, color]);
 
-  // Update color of the selected layer
+  // Update selected feature color
   useEffect(() => {
     if (selectedLayer) {
       selectedLayer.feature.properties.color = color;
       selectedLayer.setStyle({ color, fillColor: color });
 
-      // Update popup
       selectedLayer.setPopupContent(
         `<div style="font-family: sans-serif; max-width: 200px;">
           <p><strong>Type:</strong> ${selectedLayer.pm.shape}</p>
           <p><strong>Color:</strong> <span style="color:${color}">${color}</span></p>
-          <p>Click a feature to select and change its color.</p>
+          <p>Click feature to edit color.</p>
         </div>`
       );
     }
   }, [color, selectedLayer]);
+
+  // Save features to localStorage
+  const saveFeatures = () => {
+    const geojson = [];
+    map.eachLayer((layer) => {
+      if (layer.pm) geojson.push(layer.toGeoJSON());
+    });
+    localStorage.setItem('mapFeatures', JSON.stringify(geojson));
+    alert('Features saved!');
+  };
+
+  // Load features from localStorage
+  const loadFeatures = () => {
+    const stored = localStorage.getItem('mapFeatures');
+    if (!stored) return;
+    const geojsonData = JSON.parse(stored);
+
+    geojsonData.forEach((feature) => {
+      // Wrap in Feature if missing
+      const geojsonFeature =
+        feature.type === 'Feature'
+          ? feature
+          : {
+              type: 'Feature',
+              properties: feature.properties || {},
+              geometry: feature.geometry,
+            };
+
+      const color = geojsonFeature.properties?.color || '#1d4ed8';
+      let layer;
+
+      switch (geojsonFeature.geometry.type) {
+        case 'Polygon':
+        case 'MultiPolygon':
+          layer = L.geoJSON(geojsonFeature, {
+            style: { color, fillColor: color, fillOpacity: 0.5 },
+          }).getLayers()[0];
+          break;
+        case 'LineString':
+        case 'MultiLineString':
+          layer = L.geoJSON(geojsonFeature, {
+            style: { color },
+          }).getLayers()[0];
+          break;
+        case 'Point':
+          layer = L.geoJSON(geojsonFeature, {
+            pointToLayer: (f, latlng) => L.marker(latlng),
+          }).getLayers()[0];
+          break;
+        default:
+          return;
+      }
+
+      layer.feature = { properties: { color } };
+      layer.addTo(map);
+
+      // Make layer editable but NOT in edit mode
+      layer.pm.setOptions({ allowEditing: true, allowDragging: true });
+
+      // Bind popup
+      layer.bindPopup(
+        `<div style="font-family: sans-serif; max-width: 200px;">
+    <p><strong>Type:</strong> ${geojsonFeature.geometry.type}</p>
+    <p><strong>Color:</strong> <span style="color:${color}">${color}</span></p>
+  </div>`
+      );
+
+      layer.on('click', () => {
+        setSelectedLayer(layer);
+        setColor(layer.feature.properties.color);
+      });
+    });
+  };
 
   return (
     <div
@@ -159,21 +223,27 @@ const GeomanControlsWithColor = () => {
         padding: 5,
       }}
     >
-      <label>
-        Feature Color:{' '}
-        <input
-          type='color'
-          value={color}
-          onChange={(e) => setColor(e.target.value)}
-        />
-      </label>
+      <div style={{ marginBottom: 5 }}>
+        <label>
+          Feature Color:{' '}
+          <input
+            type='color'
+            value={color}
+            onChange={(e) => setColor(e.target.value)}
+          />
+        </label>
+      </div>
+      <div style={{ marginBottom: 5 }}>
+        <button onClick={saveFeatures}>Save Features</button>
+      </div>
+      <div>
+        <button onClick={loadFeatures}>Load Features</button>
+      </div>
     </div>
   );
 };
 
-// -------------------------------------------------------------
 // Main Map Component
-// -------------------------------------------------------------
 const MapWithPMTiles = () => {
   return (
     <div style={{ height: '100vh', position: 'relative' }}>
