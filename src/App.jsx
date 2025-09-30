@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { MapContainer, useMap, useMapEvents } from 'react-leaflet';
 import { useLeafletContext } from '@react-leaflet/core';
 import * as protomapsL from 'protomaps-leaflet';
@@ -24,17 +24,17 @@ const pmtilesPath = '/swisstopo.base.vt.pmtiles';
 const pmtilesMinZoom = 0;
 const pmtilesMaxZoom = 20;
 
-const PMTilesVectorLayer = ({ url, flavor, attribution, minZoom, maxZoom }) => {
+const PMTilesVectorLayer = ({ url, attribution, minZoom, maxZoom }) => {
   const context = useLeafletContext();
 
   useEffect(() => {
     const map = context.map;
 
     const layer = protomapsL.leafletLayer({
-      url: url,
-      attribution: attribution,
-      minZoom: minZoom,
-      maxZoom: maxZoom,
+      url,
+      attribution,
+      minZoom,
+      maxZoom,
       maxDataZoom: MAX_DATA_ZOOM,
       paintRules: getPaintRules(),
       labelRules: getLabelRules(),
@@ -43,7 +43,7 @@ const PMTilesVectorLayer = ({ url, flavor, attribution, minZoom, maxZoom }) => {
     layer.addTo(map);
 
     return () => map.removeLayer(layer);
-  }, [url, flavor, attribution, minZoom, maxZoom, context.map]);
+  }, [url, attribution, minZoom, maxZoom, context.map]);
 
   return null;
 };
@@ -55,12 +55,13 @@ function MapLogger() {
   return null;
 }
 
-// --- Leaflet-Geoman Component ---
-const GeomanControls = () => {
+// --- Leaflet-Geoman Component with per-feature colors ---
+const GeomanControlsWithColor = () => {
   const map = useMap();
+  const [selectedLayer, setSelectedLayer] = useState(null);
+  const [color, setColor] = useState('#1d4ed8');
 
   useEffect(() => {
-    // Add Geoman controls to the map
     map.pm.addControls({
       position: 'topleft',
       drawPolygon: true,
@@ -70,45 +71,59 @@ const GeomanControls = () => {
       drawRectangle: false,
       editMode: true,
       dragMode: true,
-      cutPolygon: false,
       removalMode: true,
     });
 
-    // Set default options for drawn layers
     map.pm.setGlobalOptions({
-      pathOptions: {
-        color: '#1d4ed8',
-        fillOpacity: 0.5,
-      },
-      markerStyle: {
-        draggable: true,
-      },
+      pathOptions: { color, fillOpacity: 0.5 },
+      markerStyle: { draggable: true },
     });
 
-    // Handle creation of new shapes
+    // Store a reference to all drawn layers
+    const layers = [];
+
+    // Handle new shapes
     map.on('pm:create', (e) => {
       const layer = e.layer;
-      console.log('--- New Feature Created ---');
-      console.log('Layer type:', e.shape);
-      console.log('GeoJSON:', layer.toGeoJSON());
+      const initialColor = color;
 
-      layer
-        .bindPopup(
+      // Assign individual color to the layer
+      layer.feature = { properties: { color: initialColor } };
+      layer.setStyle({ color: initialColor, fillColor: initialColor });
+
+      // Save the layer reference
+      layers.push(layer);
+
+      // Select the newly created layer
+      setSelectedLayer(layer);
+
+      // Bind popup showing current color
+      const updatePopup = () =>
+        layer.bindPopup(
           `<div style="font-family: sans-serif; max-width: 200px;">
-          <p><strong>Type:</strong> ${e.shape}</p>
-          <p>Data logged to console. Use Geoman tools to edit or remove.</p>
-        </div>`
-        )
-        .openPopup();
+            <p><strong>Type:</strong> ${e.shape}</p>
+            <p><strong>Color:</strong> <span style="color:${layer.feature.properties.color}">${layer.feature.properties.color}</span></p>
+            <p>Click a feature to select and change its color.</p>
+          </div>`
+        );
+
+      updatePopup();
+      layer.openPopup();
+
+      // Make layer clickable to allow selection for color change
+      layer.on('click', () => {
+        setSelectedLayer(layer);
+        setColor(layer.feature.properties.color); // sync color picker
+      });
     });
 
-    // Handle removal of shapes
+    // Handle removal
     map.on('pm:remove', (e) => {
-      console.log('--- Feature Removed ---');
-      console.log(e.layer.toGeoJSON());
+      if (selectedLayer === e.layer) setSelectedLayer(null);
+      const index = layers.indexOf(e.layer);
+      if (index > -1) layers.splice(index, 1);
     });
 
-    // Cleanup
     return () => {
       map.pm.removeControls();
       map.off('pm:create');
@@ -116,7 +131,44 @@ const GeomanControls = () => {
     };
   }, [map]);
 
-  return null;
+  // Update color of the selected layer
+  useEffect(() => {
+    if (selectedLayer) {
+      selectedLayer.feature.properties.color = color;
+      selectedLayer.setStyle({ color, fillColor: color });
+
+      // Update popup
+      selectedLayer.setPopupContent(
+        `<div style="font-family: sans-serif; max-width: 200px;">
+          <p><strong>Type:</strong> ${selectedLayer.pm.shape}</p>
+          <p><strong>Color:</strong> <span style="color:${color}">${color}</span></p>
+          <p>Click a feature to select and change its color.</p>
+        </div>`
+      );
+    }
+  }, [color, selectedLayer]);
+
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        top: 10,
+        right: 10,
+        zIndex: 1000,
+        background: 'white',
+        padding: 5,
+      }}
+    >
+      <label>
+        Feature Color:{' '}
+        <input
+          type='color'
+          value={color}
+          onChange={(e) => setColor(e.target.value)}
+        />
+      </label>
+    </div>
+  );
 };
 
 // -------------------------------------------------------------
@@ -124,24 +176,23 @@ const GeomanControls = () => {
 // -------------------------------------------------------------
 const MapWithPMTiles = () => {
   return (
-    <div className='App' style={{ height: '100vh' }}>
+    <div style={{ height: '100vh', position: 'relative' }}>
       <MapContainer
         center={initialCenter}
         zoom={initialZoom}
         minZoom={pmtilesMinZoom}
         maxZoom={pmtilesMaxZoom}
         scrollWheelZoom={true}
-        style={{ height: '100vh', width: '100%' }}
+        style={{ height: '100%', width: '100%' }}
       >
         <MapLogger />
         <PMTilesVectorLayer
           url={pmtilesPath}
-          flavor='light'
           attribution='© <a href="https://www.swisstopo.ch/" target="_blank">swisstopo</a>'
           minZoom={pmtilesMinZoom}
           maxZoom={pmtilesMaxZoom}
         />
-        <GeomanControls />
+        <GeomanControlsWithColor />
       </MapContainer>
     </div>
   );
