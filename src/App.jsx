@@ -3,6 +3,7 @@ import { MapContainer, useMap, useMapEvents } from 'react-leaflet';
 import { useLeafletContext } from '@react-leaflet/core';
 import * as protomapsL from 'protomaps-leaflet';
 import 'leaflet/dist/leaflet.css';
+
 import '@geoman-io/leaflet-geoman-free';
 import '@geoman-io/leaflet-geoman-free/dist/leaflet-geoman.css';
 import L from 'leaflet';
@@ -23,6 +24,63 @@ const initialZoom = 11;
 const pmtilesPath = '/swisstopo.base.vt.pmtiles';
 const pmtilesMinZoom = 0;
 const pmtilesMaxZoom = 20;
+
+// latlngs: array of L.LatLng
+function computePolygonArea(latlngs) {
+  if (!latlngs || latlngs.length < 3) return 0;
+  const R = 6378137; // Earth radius in meters
+  let area = 0;
+
+  for (let i = 0; i < latlngs.length; i++) {
+    const p1 = latlngs[i];
+    const p2 = latlngs[(i + 1) % latlngs.length];
+    area +=
+      (((p2.lng - p1.lng) * Math.PI) / 180) *
+      (2 +
+        Math.sin((p1.lat * Math.PI) / 180) +
+        Math.sin((p2.lat * Math.PI) / 180));
+  }
+
+  area = (area * R * R) / 2;
+  return Math.abs(area); // in m²
+}
+
+const getPopupContent = (layer) => {
+  let area = '';
+
+  if (layer instanceof L.Polygon || layer instanceof L.Polyline) {
+    const latlngs = layer.getLatLngs()[0]; // assuming single polygon ring
+    if (layer instanceof L.Polygon) {
+      const latlngs = layer.getLatLngs()[0];
+      area = computePolygonArea(latlngs).toFixed(2) + ' m²';
+    }
+
+    // Compute bounding box
+    let minLat = latlngs[0].lat,
+      maxLat = latlngs[0].lat;
+    let minLng = latlngs[0].lng,
+      maxLng = latlngs[0].lng;
+
+    latlngs.forEach((p) => {
+      if (p.lat < minLat) minLat = p.lat;
+      if (p.lat > maxLat) maxLat = p.lat;
+      if (p.lng < minLng) minLng = p.lng;
+      if (p.lng > maxLng) maxLng = p.lng;
+    });
+  }
+
+  const color = layer.feature?.properties?.color || '#1d4ed8';
+  const type = layer.pm?.shape || layer.feature?.geometry?.type;
+
+  return `
+    <div style="font-family: sans-serif; max-width: 250px;">
+      <p><strong>Type:</strong> ${type}</p>
+      <p><strong>Color:</strong> <span style="color:${color}">${color}</span></p>
+      ${area ? `<p><strong>Area:</strong> ${area}</p>` : ''}
+      <p>Click feature to edit color.</p>
+    </div>
+  `;
+};
 
 // PMTiles vector layer
 const PMTilesVectorLayer = ({ url, attribution, minZoom, maxZoom }) => {
@@ -92,14 +150,10 @@ const GeomanControlsWithColor = () => {
       layers.push(layer);
       setSelectedLayer(layer);
 
-      const updatePopup = () =>
-        layer.bindPopup(
-          `<div style="font-family: sans-serif; max-width: 200px;">
-            <p><strong>Type:</strong> ${e.shape}</p>
-            <p><strong>Color:</strong> <span style="color:${initialColor}">${initialColor}</span></p>
-            <p>Click feature to edit color.</p>
-          </div>`
-        );
+      const updatePopup = () => {
+        layer.bindPopup(getPopupContent(layer));
+        layer.openPopup();
+      };
       updatePopup();
       layer.openPopup();
 
@@ -129,13 +183,7 @@ const GeomanControlsWithColor = () => {
       selectedLayer.feature.properties.color = color;
       selectedLayer.setStyle({ color, fillColor: color });
 
-      selectedLayer.setPopupContent(
-        `<div style="font-family: sans-serif; max-width: 200px;">
-          <p><strong>Type:</strong> ${selectedLayer.pm.shape}</p>
-          <p><strong>Color:</strong> <span style="color:${color}">${color}</span></p>
-          <p>Click feature to edit color.</p>
-        </div>`
-      );
+      selectedLayer.setPopupContent(getPopupContent(selectedLayer));
     }
   }, [color, selectedLayer]);
 
