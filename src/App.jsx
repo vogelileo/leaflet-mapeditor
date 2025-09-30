@@ -25,63 +25,6 @@ const pmtilesPath = '/swisstopo.base.vt.pmtiles';
 const pmtilesMinZoom = 0;
 const pmtilesMaxZoom = 20;
 
-// latlngs: array of L.LatLng
-function computePolygonArea(latlngs) {
-  if (!latlngs || latlngs.length < 3) return 0;
-  const R = 6378137; // Earth radius in meters
-  let area = 0;
-
-  for (let i = 0; i < latlngs.length; i++) {
-    const p1 = latlngs[i];
-    const p2 = latlngs[(i + 1) % latlngs.length];
-    area +=
-      (((p2.lng - p1.lng) * Math.PI) / 180) *
-      (2 +
-        Math.sin((p1.lat * Math.PI) / 180) +
-        Math.sin((p2.lat * Math.PI) / 180));
-  }
-
-  area = (area * R * R) / 2;
-  return Math.abs(area); // in m²
-}
-
-const getPopupContent = (layer) => {
-  let area = '';
-
-  if (layer instanceof L.Polygon || layer instanceof L.Polyline) {
-    const latlngs = layer.getLatLngs()[0]; // assuming single polygon ring
-    if (layer instanceof L.Polygon) {
-      const latlngs = layer.getLatLngs()[0];
-      area = computePolygonArea(latlngs).toFixed(2) + ' m²';
-    }
-
-    // Compute bounding box
-    let minLat = latlngs[0].lat,
-      maxLat = latlngs[0].lat;
-    let minLng = latlngs[0].lng,
-      maxLng = latlngs[0].lng;
-
-    latlngs.forEach((p) => {
-      if (p.lat < minLat) minLat = p.lat;
-      if (p.lat > maxLat) maxLat = p.lat;
-      if (p.lng < minLng) minLng = p.lng;
-      if (p.lng > maxLng) maxLng = p.lng;
-    });
-  }
-
-  const color = layer.feature?.properties?.color || '#1d4ed8';
-  const type = layer.pm?.shape || layer.feature?.geometry?.type;
-
-  return `
-    <div style="font-family: sans-serif; max-width: 250px;">
-      <p><strong>Type:</strong> ${type}</p>
-      <p><strong>Color:</strong> <span style="color:${color}">${color}</span></p>
-      ${area ? `<p><strong>Area:</strong> ${area}</p>` : ''}
-      <p>Click feature to edit color.</p>
-    </div>
-  `;
-};
-
 // PMTiles vector layer
 const PMTilesVectorLayer = ({ url, attribution, minZoom, maxZoom }) => {
   const context = useLeafletContext();
@@ -100,7 +43,6 @@ const PMTilesVectorLayer = ({ url, attribution, minZoom, maxZoom }) => {
     });
 
     layer.addTo(map);
-
     return () => map.removeLayer(layer);
   }, [url, attribution, minZoom, maxZoom, context.map]);
 
@@ -127,6 +69,7 @@ const GeomanControlsWithColor = () => {
       drawPolygon: true,
       drawMarker: true,
       drawPolyline: true,
+      drawText: true,
       drawCircle: false,
       drawRectangle: false,
       editMode: true,
@@ -144,22 +87,20 @@ const GeomanControlsWithColor = () => {
     // Creation
     map.on('pm:create', (e) => {
       const layer = e.layer;
+
       const initialColor = color;
       layer.feature = { properties: { color: initialColor } };
-      layer.setStyle({ color: initialColor, fillColor: initialColor });
+      if (layer.setStyle) {
+        layer.setStyle({ color: initialColor, fillColor: initialColor });
+      }
+
       layers.push(layer);
       setSelectedLayer(layer);
-
-      const updatePopup = () => {
-        layer.bindPopup(getPopupContent(layer));
-        layer.openPopup();
-      };
-      updatePopup();
-      layer.openPopup();
-
       layer.on('click', () => {
         setSelectedLayer(layer);
-        setColor(layer.feature.properties.color);
+        if (layer.feature.properties.color) {
+          setColor(layer.feature.properties.color);
+        }
       });
     });
 
@@ -179,11 +120,9 @@ const GeomanControlsWithColor = () => {
 
   // Update selected feature color
   useEffect(() => {
-    if (selectedLayer) {
+    if (selectedLayer && selectedLayer.setStyle) {
       selectedLayer.feature.properties.color = color;
       selectedLayer.setStyle({ color, fillColor: color });
-
-      selectedLayer.setPopupContent(getPopupContent(selectedLayer));
     }
   }, [color, selectedLayer]);
 
@@ -191,9 +130,19 @@ const GeomanControlsWithColor = () => {
   const saveFeatures = () => {
     const geojson = [];
     map.eachLayer((layer) => {
-      if (layer.pm) geojson.push(layer.toGeoJSON());
+      if (layer.pm) {
+        console.log(layer);
+        console.log(layer.feature.properties);
+
+        if (layer.options && layer.options.textMarker) {
+          layer.feature.properties.text = layer.options.text;
+        }
+
+        geojson.push(layer.toGeoJSON());
+      }
     });
     localStorage.setItem('mapFeatures', JSON.stringify(geojson));
+    console.log(geojson);
     alert('Features saved!');
   };
 
@@ -204,7 +153,6 @@ const GeomanControlsWithColor = () => {
     const geojsonData = JSON.parse(stored);
 
     geojsonData.forEach((feature) => {
-      // Wrap in Feature if missing
       const geojsonFeature =
         feature.type === 'Feature'
           ? feature
@@ -214,48 +162,51 @@ const GeomanControlsWithColor = () => {
               geometry: feature.geometry,
             };
 
-      const color = geojsonFeature.properties?.color || '#1d4ed8';
       let layer;
 
       switch (geojsonFeature.geometry.type) {
         case 'Polygon':
         case 'MultiPolygon':
           layer = L.geoJSON(geojsonFeature, {
-            style: { color, fillColor: color, fillOpacity: 0.5 },
+            style: { color: geojsonFeature.properties.color || '#1d4ed8' },
           }).getLayers()[0];
           break;
         case 'LineString':
         case 'MultiLineString':
           layer = L.geoJSON(geojsonFeature, {
-            style: { color },
+            style: { color: geojsonFeature.properties.color || '#1d4ed8' },
           }).getLayers()[0];
           break;
         case 'Point':
           layer = L.geoJSON(geojsonFeature, {
-            pointToLayer: (f, latlng) => L.marker(latlng),
+            pointToLayer: (f, latlng) =>
+              L.marker(latlng, {
+                icon: L.divIcon({
+                  className: 'text-marker',
+                  html: `<div style="color:black;font-weight:bold;">${
+                    f.properties?.text || '📍'
+                  }</div>`,
+                }),
+              }),
           }).getLayers()[0];
           break;
         default:
           return;
       }
 
-      layer.feature = { properties: { color } };
+      layer.feature = geojsonFeature;
       layer.addTo(map);
 
-      // Make layer editable but NOT in edit mode
-      layer.pm.setOptions({ allowEditing: true, allowDragging: true });
-
-      // Bind popup
-      layer.bindPopup(
-        `<div style="font-family: sans-serif; max-width: 200px;">
-    <p><strong>Type:</strong> ${geojsonFeature.geometry.type}</p>
-    <p><strong>Color:</strong> <span style="color:${color}">${color}</span></p>
-  </div>`
-      );
+      // Allow editing
+      if (layer.pm) {
+        layer.pm.setOptions({ allowEditing: true, allowDragging: true });
+      }
 
       layer.on('click', () => {
         setSelectedLayer(layer);
-        setColor(layer.feature.properties.color);
+        if (layer.feature.properties.color) {
+          setColor(layer.feature.properties.color);
+        }
       });
     });
   };
@@ -272,21 +223,24 @@ const GeomanControlsWithColor = () => {
       }}
     >
       <div style={{ marginBottom: 5 }}>
+        {' '}
         <label>
           Feature Color:{' '}
           <input
             type='color'
             value={color}
             onChange={(e) => setColor(e.target.value)}
-          />
-        </label>
+          />{' '}
+        </label>{' '}
       </div>
       <div style={{ marginBottom: 5 }}>
-        <button onClick={saveFeatures}>Save Features</button>
-      </div>
+        {' '}
+        <button onClick={saveFeatures}>Save Features</button>{' '}
+      </div>{' '}
       <div>
-        <button onClick={loadFeatures}>Load Features</button>
-      </div>
+        {' '}
+        <button onClick={loadFeatures}>Load Features</button>{' '}
+      </div>{' '}
     </div>
   );
 };
@@ -303,15 +257,16 @@ const MapWithPMTiles = () => {
         scrollWheelZoom={true}
         style={{ height: '100%', width: '100%' }}
       >
-        <MapLogger />
+        {' '}
+        <MapLogger />{' '}
         <PMTilesVectorLayer
           url={pmtilesPath}
           attribution='© <a href="https://www.swisstopo.ch/" target="_blank">swisstopo</a>'
           minZoom={pmtilesMinZoom}
           maxZoom={pmtilesMaxZoom}
-        />
-        <GeomanControlsWithColor />
-      </MapContainer>
+        />{' '}
+        <GeomanControlsWithColor />{' '}
+      </MapContainer>{' '}
     </div>
   );
 };
