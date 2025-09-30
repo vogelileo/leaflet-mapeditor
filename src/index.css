@@ -1,0 +1,18 @@
+.map-page {
+  text-align: center;
+}
+
+.map {
+  height: 80vh; /* takes 80% of viewport height */
+  width: 100%; /* full width */
+}
+
+/* In your index.css or App.css */
+html,
+body,
+#root,
+.App {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
