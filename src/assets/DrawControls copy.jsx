@@ -1,10 +1,9 @@
 // DrawControls.jsx
-import { useEffect, useState } from 'react';
-import { FeatureGroup, useMap } from 'react-leaflet';
-import L, { layerGroup, map } from 'leaflet';
+import { useEffect } from 'react';
+import { useMap } from 'react-leaflet';
+import L from 'leaflet';
 
 const getColor = (layer) => layer.feature?.properties?.color || '#1d4ed8';
-
 const getName = (layer, text) => layer.feature?.properties?.name || text || '';
 
 const getTooltipContent = (layerId, type, color, name) => `
@@ -31,14 +30,11 @@ const saveTooltipValues = (map, layer, type, color, name) => {
 
   // Update tooltip
   const tooltip = layer.getTooltip();
-  if (tooltip) {
+  if (tooltip)
     tooltip.setContent(getTooltipContent(layerId, type, color, name));
-  }
 
   // Apply color
-  if (layer.setStyle) {
-    layer.setStyle({ color });
-  }
+  if (layer.setStyle) layer.setStyle({ color });
 
   // Ensure feature + properties exist
   if (!layer.feature) layer.feature = { type: 'Feature', properties: {} };
@@ -66,42 +62,21 @@ const bindEditableTooltip = (map, layer, type, text) => {
 
   layer.bindTooltip(tooltip);
 
-  // Set initial values
   saveTooltipValues(map, layer, type, color, name);
-};
-
-const getAllFeatureGroups = (map) => {
-  const groups = [];
-  map.eachLayer((layer) => {
-    if (layer instanceof FeatureGroup) {
-      groups.add(layer);
-    }
-  });
-
-  return groups;
-};
-
-const getFeatureGroup = (map, groupName) => {
-  const groups = getAllFeatureGroups(map);
-  return groups.find((g) => g.options?.layerGroup === groupName);
-};
-
-const createFeatureGroup = (map, groupName) => {
-  const group = new L.FeatureGroup();
-  group.options.layerGroup = groupName;
-  group.addTo(map);
-  return group;
 };
 
 const DrawControls = () => {
   const map = useMap();
-  const [editableFeatures] = useState(createFeatureGroup(map, 'default'));
 
   useEffect(() => {
-    editableFeatures.addTo(map);
+    // Initialize layerGroups on map if missing
+    if (!map.layerGroups) map.layerGroups = {};
+    if (!map.layerGroups.default) {
+      map.layerGroups.default = new L.FeatureGroup().addTo(map);
+    }
 
     const drawControl = new L.Control.Draw({
-      edit: { featureGroup: editableFeatures, remove: true },
+      edit: { featureGroup: map.layerGroups.default, remove: true },
       draw: {
         polygon: {
           allowIntersection: false,
@@ -118,19 +93,15 @@ const DrawControls = () => {
 
     map.addControl(drawControl);
 
-    // Handle creation
     map.on(L.Draw.Event.CREATED, (event) => {
       const layer = event.layer;
       const type = event.layerType;
 
+      // Assign default layer group
       layer.options.layerGroup = 'default';
-      if (getFeatureGroup(map, 'default')) {
-        getFeatureGroup(map, 'default').addLayer(layer);
-        editableFeatures.addLayer(layer);
-      } else {
-        createFeatureGroup(map, 'default').addLayer(layer);
-        editableFeatures.addLayer(layer);
-      }
+      map.layerGroups.default.addLayer(layer);
+
+      console.log('New layer created in group:', layer.options.layerGroup);
 
       if (layer instanceof L.Marker) {
         const text = 'New marker';
@@ -144,7 +115,6 @@ const DrawControls = () => {
       }
     });
 
-    // Delegated save handler
     const handleSaveClick = (e) => {
       const btn = e.target.closest('.save-tooltip-btn');
       if (!btn) return;
@@ -159,17 +129,18 @@ const DrawControls = () => {
       const color = colorInput?.value || '#1d4ed8';
       const name = nameInput?.value || '';
 
-      // Find layer and save
-      editableFeatures.eachLayer((layer) => {
-        if (L.Util.stamp(layer) == layerId) {
-          saveTooltipValues(
-            map,
-            layer,
-            layer.feature?.geometry?.type,
-            color,
-            name
-          );
-        }
+      Object.values(map.layerGroups).forEach((group) => {
+        group.eachLayer((layer) => {
+          if (L.Util.stamp(layer) == layerId) {
+            saveTooltipValues(
+              map,
+              layer,
+              layer.feature?.geometry?.type,
+              color,
+              name
+            );
+          }
+        });
       });
     };
 
@@ -181,39 +152,58 @@ const DrawControls = () => {
       map.off(L.Draw.Event.CREATED);
       container.removeEventListener('click', handleSaveClick);
     };
-  }, [map, editableFeatures]);
+  }, [map]);
 
-  // Save all features
   const handleSave = () => {
-    const geojson = editableFeatures.toGeoJSON();
+    const allLayers = Object.values(map.layerGroups).flatMap((group) =>
+      group.getLayers()
+    );
+
+    const geojson = {
+      type: 'FeatureCollection',
+      features: allLayers.map((layer) => {
+        // Convert layer to GeoJSON
+        const layerGeo = layer.toGeoJSON();
+        // Copy properties and add layerGroup
+        layerGeo.properties = {
+          ...layerGeo.properties,
+          layerGroup: layer.options.layerGroup || 'default',
+        };
+        return layerGeo;
+      }),
+    };
+
     localStorage.setItem('drawnFeatures', JSON.stringify(geojson));
-    console.log('Saved features to localStorage:', geojson);
+    console.log('Saved features with layer groups:', geojson);
   };
 
-  // Load features
   const handleLoad = () => {
     const savedData = localStorage.getItem('drawnFeatures');
     if (!savedData) return alert('No saved features found.');
     const geojson = JSON.parse(savedData);
-    console.log(geojson, savedData);
 
-    editableFeatures.clearLayers();
+    // Clear existing groups
+    Object.values(map.layerGroups).forEach((group) => group.clearLayers());
+
     L.geoJSON(geojson, {
       onEachFeature: (feature, layer) => {
-        if (feature.properties?.text) {
-          bindEditableTooltip(
-            map,
-            layer,
-            feature.geometry.type,
-            feature.properties.text
-          );
-        } else {
-          bindEditableTooltip(map, layer, feature.geometry.type);
+        const groupName = feature.properties?.layerGroup || 'default';
+
+        // Create group if missing
+        if (!map.layerGroups[groupName]) {
+          map.layerGroups[groupName] = new L.FeatureGroup().addTo(map);
         }
+
+        layer.options.layerGroup = groupName;
+        map.layerGroups[groupName].addLayer(layer);
+
+        bindEditableTooltip(
+          map,
+          layer,
+          feature.geometry.type,
+          feature.properties?.text
+        );
       },
-    }).eachLayer((layer) => {
-      console.log(layer);
-      editableFeatures.addLayer(layer);
     });
   };
 
