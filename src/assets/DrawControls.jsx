@@ -3,54 +3,56 @@ import { useEffect, useState } from 'react';
 import { useMap } from 'react-leaflet';
 import L from 'leaflet';
 
-const bindEditableTooltip = (map, layer, type, text) => {
-  // Tooltip content: Type, Color, Name, Save button
-  const layerId = L.Util.stamp(layer);
-  const getTooltipContent = (type, color, name) => `
-    <div style="min-width: 180px;" id="tooltip-content-${layerId}">
-      <div><strong>Type:</strong> ${type || ''}</div>
-      <div style="margin: 6px 0;">
-        <label>
-          <strong>Color:</strong>
-          <input type="color" id="color-input-${layerId}" value="${
-    color || '#1d4ed8'
-  }" style="margin-left: 8px; vertical-align: middle;" />
-        </label>
-      </div>
-      <div style="margin: 6px 0;">
-        <label>
-          <strong>Name:</strong>
-          <input type="text" id="name-input-${layerId}" value="${
-    name || ''
-  }" style="margin-left: 8px; min-width: 80px;" />
-        </label>
-      </div>
-      <button id="save-tooltip-btn-${layerId}" style="margin-top: 6px;">Save</button>
+const getColor = (layer) => layer.feature?.properties?.color || '#1d4ed8';
+
+const getName = (layer, text) => layer.feature?.properties?.name || text || '';
+
+const getTooltipContent = (layerId, type, color, name) => `
+  <div style="min-width: 180px;" id="tooltip-content-${layerId}">
+    <div><strong>Type:</strong> ${type || ''}</div>
+    <div style="margin: 6px 0;">
+      <label>
+        <strong>Color:</strong>
+        <input type="color" id="color-input-${layerId}" value="${color}" />
+      </label>
     </div>
-  `;
+    <div style="margin: 6px 0;">
+      <label>
+        <strong>Name:</strong>
+        <input type="text" id="name-input-${layerId}" value="${name}" />
+      </label>
+    </div>
+    <button data-layer-id="${layerId}" class="save-tooltip-btn">Save</button>
+  </div>
+`;
 
-  // Get color from layer options if available
-  const getColor = (layer) => {
-    if (
-      layer.feature &&
-      layer.feature.properties &&
-      layer.feature.properties.color
-    )
-      return layer.feature.properties.color;
-    return '#1d4ed8';
-  };
+const saveTooltipValues = (map, layer, type, color, name) => {
+  const layerId = L.Util.stamp(layer);
 
-  // Get name from feature properties or text
-  const getName = (layer, text) => {
-    if (
-      layer.feature &&
-      layer.feature.properties &&
-      layer.feature.properties.name
-    )
-      return layer.feature.properties.name;
-    return text || '';
-  };
+  // Update tooltip
+  const tooltip = layer.getTooltip();
+  if (tooltip) {
+    tooltip.setContent(getTooltipContent(layerId, type, color, name));
+  }
 
+  // Apply color
+  if (layer.setStyle) {
+    layer.setStyle({ color });
+  }
+
+  // Ensure feature + properties exist
+  if (!layer.feature) layer.feature = { type: 'Feature', properties: {} };
+  if (!layer.feature.properties) layer.feature.properties = {};
+
+  layer.feature.properties.name = name;
+  layer.feature.properties.color = color;
+  if (layer.options) layer.options.color = color;
+
+  map.fire(L.Draw.Event.EDITED, { layers: L.layerGroup([layer]) });
+};
+
+const bindEditableTooltip = (map, layer, type, text) => {
+  const layerId = L.Util.stamp(layer);
   const color = getColor(layer);
   const name = getName(layer, text);
 
@@ -59,53 +61,12 @@ const bindEditableTooltip = (map, layer, type, text) => {
     direction: 'right',
     className: 'text-marker',
     interactive: true,
-  }).setContent(getTooltipContent(type, color, name));
+  }).setContent(getTooltipContent(layerId, type, color, name));
 
   layer.bindTooltip(tooltip);
 
-  // Function to save tooltip values to the layer
-  const saveTooltipValues = (layer, type, color, name) => {
-    // Update tooltip content
-    tooltip.setContent(getTooltipContent(type, color, name));
-
-    // Update layer color (for polygons, polylines, etc.)
-    if (layer.setStyle) {
-      layer.setStyle({ color });
-    }
-    // For marker, update icon color if needed (not handled here)
-
-    // Ensure layer.feature and layer.feature.properties exist
-    if (!layer.feature) layer.feature = { type: 'Feature', properties: {} };
-    if (!layer.feature.properties) layer.feature.properties = {};
-    layer.feature.properties.name = name;
-    layer.feature.properties.color = color;
-
-    // Also update layer.options.color for consistency
-    if (layer.options) layer.options.color = color;
-  };
-
-  // Attach event after tooltip is opened
-  layer.on('tooltipopen', function (e) {
-    const tooltipEl = document.querySelector('#tooltip-content-' + layerId);
-    if (!tooltipEl) return;
-
-    const colorInput = tooltipEl.querySelector('#color-input-' + layerId);
-    const nameInput = tooltipEl.querySelector('#name-input-' + layerId);
-    const saveBtn = tooltipEl.querySelector('#save-tooltip-btn-' + layerId);
-
-    if (colorInput) colorInput.value = getColor(layer);
-    if (nameInput) nameInput.value = getName(layer, text);
-
-    saveBtn &&
-      saveBtn.addEventListener('click', () => {
-        const newColor = colorInput ? colorInput.value : color;
-        const newName = nameInput ? nameInput.value : name;
-        saveTooltipValues(layer, type, newColor, newName);
-      });
-  });
-
-  // Call saveTooltipValues on load to set color and name
-  saveTooltipValues(layer, type, color, name);
+  // Set initial values
+  saveTooltipValues(map, layer, type, color, name);
 };
 
 const DrawControls = () => {
@@ -133,6 +94,7 @@ const DrawControls = () => {
 
     map.addControl(drawControl);
 
+    // Handle creation
     map.on(L.Draw.Event.CREATED, (event) => {
       const layer = event.layer;
       const type = event.layerType;
@@ -147,21 +109,53 @@ const DrawControls = () => {
       }
     });
 
+    // Delegated save handler
+    const handleSaveClick = (e) => {
+      const btn = e.target.closest('.save-tooltip-btn');
+      if (!btn) return;
+
+      const layerId = btn.getAttribute('data-layer-id');
+      const tooltipEl = document.querySelector(`#tooltip-content-${layerId}`);
+      if (!tooltipEl) return;
+
+      const colorInput = tooltipEl.querySelector(`#color-input-${layerId}`);
+      const nameInput = tooltipEl.querySelector(`#name-input-${layerId}`);
+
+      const color = colorInput?.value || '#1d4ed8';
+      const name = nameInput?.value || '';
+
+      // Find layer and save
+      editableFeatures.eachLayer((layer) => {
+        if (L.Util.stamp(layer) == layerId) {
+          saveTooltipValues(
+            map,
+            layer,
+            layer.feature?.geometry?.type,
+            color,
+            name
+          );
+        }
+      });
+    };
+
+    const container = map.getContainer();
+    container.addEventListener('click', handleSaveClick);
+
     return () => {
       map.removeControl(drawControl);
       map.off(L.Draw.Event.CREATED);
+      container.removeEventListener('click', handleSaveClick);
     };
   }, [map, editableFeatures]);
 
-  // Save / Load buttons
+  // Save all features
   const handleSave = () => {
-    console.log('Original editableFeatures:');
-    editableFeatures.eachLayer((layer) => console.log(layer));
     const geojson = editableFeatures.toGeoJSON();
     localStorage.setItem('drawnFeatures', JSON.stringify(geojson));
     console.log('Saved features to localStorage:', geojson);
   };
 
+  // Load features
   const handleLoad = () => {
     const savedData = localStorage.getItem('drawnFeatures');
     if (!savedData) return alert('No saved features found.');
@@ -171,7 +165,6 @@ const DrawControls = () => {
 
     L.geoJSON(geojson, {
       onEachFeature: (feature, layer) => {
-        console.log('Loaded feature:', feature);
         if (feature.properties?.text) {
           bindEditableTooltip(
             map,

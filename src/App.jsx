@@ -27,7 +27,6 @@ L.Icon.Default.mergeOptions({
 
 const MapWithPMTiles = () => (
   <div style={{ height: '100vh' }}>
-    <TreeExample />
     <MapContainer
       center={initialCenter}
       zoom={initialZoom}
@@ -35,6 +34,8 @@ const MapWithPMTiles = () => (
       maxZoom={pmtilesMaxZoom}
       style={{ height: '100vh', width: '100%' }}
     >
+      <TreeExample />
+
       <MapLogger />
       <PMTilesVectorLayer
         url={pmtilesPath}
