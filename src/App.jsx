@@ -14,6 +14,7 @@ import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import 'leaflet-draw/dist/leaflet.draw.css';
 import 'leaflet-draw';
+import TreeExample from './assets/TreeExample';
 
 // Fix for missing default Leaflet icons
 delete L.Icon.Default.prototype._getIconUrl;
@@ -26,6 +27,7 @@ L.Icon.Default.mergeOptions({
 
 const MapWithPMTiles = () => (
   <div style={{ height: '100vh' }}>
+    <TreeExample />
     <MapContainer
       center={initialCenter}
       zoom={initialZoom}
