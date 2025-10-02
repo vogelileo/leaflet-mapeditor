@@ -1,52 +1,30 @@
-// MapWithPMTiles.jsx
-import { MapContainer } from 'react-leaflet';
-import PMTilesVectorLayer from './assets/PMTilesVectorLayer';
-import DrawControls from './assets/DrawControls';
-import MapLogger from './assets/MapLogger';
-import {
-  initialCenter,
-  initialZoom,
-  pmtilesMinZoom,
-  pmtilesMaxZoom,
-  pmtilesPath,
-} from './assets/MapConfig';
-import 'leaflet/dist/leaflet.css';
-import L from 'leaflet';
-import 'leaflet-draw/dist/leaflet.draw.css';
-import 'leaflet-draw';
-import TreeExample from './assets/TreeExample';
+import Map from './assets/Map';
+import { useMapStore } from './store';
 
-// Fix for missing default Leaflet icons
-delete L.Icon.Default.prototype._getIconUrl;
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl:
-    'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
-  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-});
+export default function App() {
+  const { toggleLayerGroup, saveMap, loadMap, features } = useMapStore();
 
-const MapWithPMTiles = () => (
-  <div style={{ height: '100vh' }}>
-    <MapContainer
-      center={initialCenter}
-      zoom={initialZoom}
-      minZoom={pmtilesMinZoom}
-      maxZoom={pmtilesMaxZoom}
-      style={{ height: '100vh', width: '100%' }}
-    >
-      <TreeExample />
+  // Example external function to change name
+  const renameFirstFeature = () => {
+    if (features.length > 0) {
+      const firstId = features[0].id;
+      useMapStore
+        .getState()
+        .updateFeature(firstId, { name: 'Renamed feature' });
+    }
+  };
 
-      <MapLogger />
-      <PMTilesVectorLayer
-        url={pmtilesPath}
-        flavor='light'
-        attribution='© <a href="https://www.swisstopo.ch/" target="_blank">swisstopo</a>'
-        minZoom={pmtilesMinZoom}
-        maxZoom={pmtilesMaxZoom}
-      />
-      <DrawControls />
-    </MapContainer>
-  </div>
-);
-
-export default MapWithPMTiles;
+  return (
+    <div>
+      <div style={{ padding: 10 }}>
+        <button onClick={() => toggleLayerGroup('default')}>
+          Toggle Default Group
+        </button>
+        <button onClick={saveMap}>Save Map</button>
+        <button onClick={loadMap}>Load Map</button>
+        <button onClick={renameFirstFeature}>Rename First Feature</button>
+      </div>
+      <Map />
+    </div>
+  );
+}
