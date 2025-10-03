@@ -23,6 +23,7 @@ export const useMapStore = create((set, get) => ({
   },
   loadMap: () => {
     const data = localStorage.getItem('mapData');
+    console.log('Loaded data:', data);
     if (data) set({ features: JSON.parse(data) });
   },
 }));

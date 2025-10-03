@@ -15,9 +15,8 @@ import { EditControl } from 'react-leaflet-draw';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import 'leaflet-draw/dist/leaflet.draw.css';
-import 'leaflet-path-transform'; // ✅ plugin for rotation
 import { useMapStore } from '../store';
-import { useRef, useEffect } from 'react';
+import { useRef } from 'react';
 import {
   initialCenter,
   initialZoom,
@@ -33,22 +32,6 @@ export default function Map() {
   const { features, addFeature, updateFeature, removeFeature } = useMapStore();
   const featureGroupRef = useRef(null);
 
-  // attach rotation handler after shapes are added
-  useEffect(() => {
-    if (!featureGroupRef.current) return;
-
-    featureGroupRef.current.eachLayer((layer) => {
-      if (layer instanceof L.Polygon || layer instanceof L.Rectangle) {
-        if (!layer.transform) {
-          layer.transform({
-            rotation: true,
-            scaling: false,
-          });
-        }
-      }
-    });
-  }, [features]);
-
   const onCreated = (e) => {
     const layer = e.layer;
     const customId = uuidv4();
@@ -56,7 +39,7 @@ export default function Map() {
 
     let type = null;
     let coords;
-
+    console.log(e.layer);
     if (layer instanceof L.Marker) {
       type = 'marker';
       coords = layer.getLatLng();
@@ -148,16 +131,22 @@ export default function Map() {
           onCreated={onCreated}
           onEdited={onEdited}
           onDeleted={onDeleted}
-          draw={{ rectangle: true, circlemarker: false }}
+          draw={{
+            rectangle: {
+              showArea: false,
+            },
+            circlemarker: false,
+          }}
           edit={{
             moveMarkers: true,
             poly: { allowIntersection: false },
           }}
         />
 
-        {features.map((f) =>
-          f.visible ? (
-            f.type === 'marker' ? (
+        {features.map(
+          (f) =>
+            f.visible &&
+            (f.type === 'marker' ? (
               <Marker key={f.id} position={f.coordinates} customId={f.id}>
                 <Popup>
                   <FeaturePopup feature={f} />
@@ -181,7 +170,7 @@ export default function Map() {
               <Rectangle
                 key={f.id}
                 bounds={f.coordinates}
-                pathOptions={{ color: f.color || '#ff8800' }}
+                pathOptions={{ color: f.color || '#3388ff' }}
                 customId={f.id}
               >
                 <Popup>
@@ -211,8 +200,7 @@ export default function Map() {
                   <FeaturePopup feature={f} />
                 </Popup>
               </Circle>
-            ) : null
-          ) : null
+            ) : null)
         )}
       </FeatureGroup>
     </MapContainer>
