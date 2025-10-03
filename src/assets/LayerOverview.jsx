@@ -25,7 +25,7 @@ export default function LayerOverview() {
       id: f.id,
       parent: `group-${f.layerGroup || 'default'}`,
       droppable: false,
-      text: `${f.name} (${f.type} ${f.id})`,
+      text: `${f.name} (${f.type} ${f.id.slice(-5)})`,
     }));
 
     setTreeData([

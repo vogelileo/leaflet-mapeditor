@@ -7,7 +7,6 @@ import {
   Polyline,
   Circle,
   FeatureGroup,
-  useMap,
 } from 'react-leaflet';
 import { EditControl } from 'react-leaflet-draw';
 import L from 'leaflet';
@@ -35,10 +34,11 @@ export default function Map() {
     const customId = uuidv4(); // ✅ stable ID
     layer.options.customId = customId; // ✅ attach to the layer
 
-    let type = 'marker';
+    let type = null;
     let coords;
 
     if (layer instanceof L.Marker) {
+      type = 'marker';
       coords = layer.getLatLng();
     } else if (layer instanceof L.Polygon) {
       type = 'polygon';
@@ -57,23 +57,21 @@ export default function Map() {
       coordinates: coords,
       layerGroup: 'default',
       visible: true,
-      name: `${type} ${customId}`,
+      name: `${type} ${customId.slice(-5)}`,
       description: '',
     });
 
-    featureGroupRef.current.removeLayer(layer);
+    featureGroupRef.current.removeLayer(layer); // workaround for leaflet-draw bug
   };
 
   const onEdited = (e) => {
+    console.log(e);
     e.layers.eachLayer((layer) => {
       const id = layer.options.customId;
       if (!id) {
         console.warn('Edited layer has no customId, skipping update', layer);
         return;
       }
-      console.log(id, {
-        coordinates: { lat: layer.getLatLng(), radius: layer.getRadius() },
-      });
 
       if (layer instanceof L.Marker) {
         updateFeature(id, { coordinates: layer.getLatLng() });
@@ -90,6 +88,10 @@ export default function Map() {
   const onDeleted = (e) => {
     e.layers.eachLayer((layer) => {
       const id = layer.options.customId;
+      if (!id) {
+        console.warn('Deleted layer has no customId, skipping update', layer);
+        return;
+      }
       if (id) removeFeature(id);
     });
   };
@@ -125,12 +127,11 @@ export default function Map() {
         />
 
         {/* Render your features inside the FeatureGroup */}
-        {console.log('features in map:', features)}
         {features.map(
           (f) =>
             f.visible &&
             (f.type === 'marker' ? (
-              <Marker key={f.id} position={f.coordinates}>
+              <Marker key={f.id} position={f.coordinates} customId={f.id}>
                 <Popup>
                   <FeaturePopup feature={f} />
                 </Popup>
@@ -140,6 +141,7 @@ export default function Map() {
                 key={f.id}
                 positions={f.coordinates}
                 pathOptions={{ color: f.color || '#3388ff' }}
+                customId={f.id}
               >
                 <Popup>
                   <FeaturePopup feature={f} />
@@ -150,6 +152,7 @@ export default function Map() {
                 key={f.id}
                 positions={f.coordinates}
                 pathOptions={{ color: f.color || '#3388ff' }}
+                customId={f.id}
               >
                 <Popup>
                   <FeaturePopup feature={f} />
@@ -161,6 +164,7 @@ export default function Map() {
                 center={f.coordinates.lat}
                 radius={f.coordinates.radius}
                 pathOptions={{ color: f.color || '#3388ff' }}
+                customId={f.id}
               >
                 <Popup>
                   <FeaturePopup feature={f} />
