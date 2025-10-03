@@ -140,6 +140,7 @@ export default function Map() {
           edit={{
             moveMarkers: true,
             poly: { allowIntersection: false },
+            rotate: true,
           }}
         />
 
