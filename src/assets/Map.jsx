@@ -6,14 +6,18 @@ import {
   Polygon,
   Polyline,
   Circle,
+  Rectangle,
   FeatureGroup,
+  LayersControl,
+  Tooltip,
 } from 'react-leaflet';
 import { EditControl } from 'react-leaflet-draw';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import 'leaflet-draw/dist/leaflet.draw.css';
+import 'leaflet-path-transform'; // ✅ plugin for rotation
 import { useMapStore } from '../store';
-import { useRef } from 'react';
+import { useRef, useEffect } from 'react';
 import {
   initialCenter,
   initialZoom,
@@ -29,10 +33,26 @@ export default function Map() {
   const { features, addFeature, updateFeature, removeFeature } = useMapStore();
   const featureGroupRef = useRef(null);
 
+  // attach rotation handler after shapes are added
+  useEffect(() => {
+    if (!featureGroupRef.current) return;
+
+    featureGroupRef.current.eachLayer((layer) => {
+      if (layer instanceof L.Polygon || layer instanceof L.Rectangle) {
+        if (!layer.transform) {
+          layer.transform({
+            rotation: true,
+            scaling: false,
+          });
+        }
+      }
+    });
+  }, [features]);
+
   const onCreated = (e) => {
     const layer = e.layer;
-    const customId = uuidv4(); // ✅ stable ID
-    layer.options.customId = customId; // ✅ attach to the layer
+    const customId = uuidv4();
+    layer.options.customId = customId;
 
     let type = null;
     let coords;
@@ -40,6 +60,9 @@ export default function Map() {
     if (layer instanceof L.Marker) {
       type = 'marker';
       coords = layer.getLatLng();
+    } else if (layer instanceof L.Rectangle) {
+      type = 'rectangle';
+      coords = layer.getLatLngs();
     } else if (layer instanceof L.Polygon) {
       type = 'polygon';
       coords = layer.getLatLngs();
@@ -61,21 +84,21 @@ export default function Map() {
       description: '',
     });
 
-    featureGroupRef.current.removeLayer(layer); // workaround for leaflet-draw bug
+    featureGroupRef.current.removeLayer(layer);
   };
 
   const onEdited = (e) => {
-    console.log(e);
     e.layers.eachLayer((layer) => {
       const id = layer.options.customId;
-      if (!id) {
-        console.warn('Edited layer has no customId, skipping update', layer);
-        return;
-      }
+      if (!id) return;
 
       if (layer instanceof L.Marker) {
         updateFeature(id, { coordinates: layer.getLatLng() });
-      } else if (layer instanceof L.Polygon || layer instanceof L.Polyline) {
+      } else if (
+        layer instanceof L.Polygon ||
+        layer instanceof L.Polyline ||
+        layer instanceof L.Rectangle
+      ) {
         updateFeature(id, { coordinates: layer.getLatLngs() });
       } else if (layer instanceof L.Circle) {
         updateFeature(id, {
@@ -88,10 +111,6 @@ export default function Map() {
   const onDeleted = (e) => {
     e.layers.eachLayer((layer) => {
       const id = layer.options.customId;
-      if (!id) {
-        console.warn('Deleted layer has no customId, skipping update', layer);
-        return;
-      }
       if (id) removeFeature(id);
     });
   };
@@ -104,37 +123,48 @@ export default function Map() {
       maxZoom={pmtilesMaxZoom}
       style={{ height: '80vh', width: '100%' }}
     >
-      {/* <TileLayer url='https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png' /> */}
-      <PMTilesVectorLayer
-        url={pmtilesPath}
-        flavor='light'
-        attribution='© <a href="https://www.swisstopo.ch/" target="_blank">swisstopo</a>'
-        minZoom={pmtilesMinZoom}
-        maxZoom={pmtilesMaxZoom}
-      />
+      <LayersControl position='bottomright'>
+        <LayersControl.BaseLayer checked name='Color Map - Offline'>
+          <PMTilesVectorLayer
+            url={pmtilesPath}
+            attribution="© <a href='https://www.swisstopo.ch/'>swisstopo</a>"
+            minZoom={pmtilesMinZoom}
+            maxZoom={pmtilesMaxZoom}
+          />
+        </LayersControl.BaseLayer>
+        <LayersControl.BaseLayer name='Aerial Map'>
+          <TileLayer
+            url='https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.swissimage/default/current/3857/{z}/{x}/{y}.jpeg'
+            maxZoom={20}
+            attribution="&copy; <a href='https://www.swisstopo.ch/'>swisstopo</a>"
+          />
+        </LayersControl.BaseLayer>
+      </LayersControl>
+
       <FeatureGroup ref={featureGroupRef}>
         <EditControl
-          position='topright'
-          featureGroup={featureGroupRef.current} // <- pass the actual Leaflet FeatureGroup
+          position='topleft'
+          featureGroup={featureGroupRef.current}
           onCreated={onCreated}
           onEdited={onEdited}
           onDeleted={onDeleted}
-          draw={{ rectangle: false, circlemarker: false }}
+          draw={{ rectangle: true, circlemarker: false }}
           edit={{
-            moveMarkers: true, // allows vertices to be dragged
+            moveMarkers: true,
             poly: { allowIntersection: false },
           }}
         />
 
-        {/* Render your features inside the FeatureGroup */}
-        {features.map(
-          (f) =>
-            f.visible &&
-            (f.type === 'marker' ? (
+        {features.map((f) =>
+          f.visible ? (
+            f.type === 'marker' ? (
               <Marker key={f.id} position={f.coordinates} customId={f.id}>
                 <Popup>
                   <FeaturePopup feature={f} />
                 </Popup>
+                <Tooltip direction='bottom' offset={[-15, 30]} permanent>
+                  {f.name || 'Unnamed'}
+                </Tooltip>
               </Marker>
             ) : f.type === 'polygon' ? (
               <Polygon
@@ -147,6 +177,17 @@ export default function Map() {
                   <FeaturePopup feature={f} />
                 </Popup>
               </Polygon>
+            ) : f.type === 'rectangle' ? (
+              <Rectangle
+                key={f.id}
+                bounds={f.coordinates}
+                pathOptions={{ color: f.color || '#ff8800' }}
+                customId={f.id}
+              >
+                <Popup>
+                  <FeaturePopup feature={f} />
+                </Popup>
+              </Rectangle>
             ) : f.type === 'line' ? (
               <Polyline
                 key={f.id}
@@ -170,7 +211,8 @@ export default function Map() {
                   <FeaturePopup feature={f} />
                 </Popup>
               </Circle>
-            ) : null)
+            ) : null
+          ) : null
         )}
       </FeatureGroup>
     </MapContainer>

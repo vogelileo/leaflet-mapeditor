@@ -1177,6 +1177,18 @@ leaflet-draw@^1.0.4:
   resolved "https://registry.yarnpkg.com/leaflet-draw/-/leaflet-draw-1.0.4.tgz#45be92f378ed253e7202fdeda1fcc71885198d46"
   integrity sha512-rsQ6saQO5ST5Aj6XRFylr5zvarWgzWnrg46zQ1MEOEIHsppdC/8hnN8qMoFvACsPvTioAuysya/TVtog15tyAQ==
 
+leaflet-path-drag@1.9.5:
+  version "1.9.5"
+  resolved "https://registry.yarnpkg.com/leaflet-path-drag/-/leaflet-path-drag-1.9.5.tgz#70e876c30d231793719821fc42702652ff19be02"
+  integrity sha512-u2oQzU/IR+XezHwREyB4T3Og5DJXgdyxtmK+GEQyrVLUwLlWaFxa0QMGxlWgE4Ch+rSyUeYOq/x8uLnelC3DnQ==
+
+leaflet-path-transform@^1.9.0:
+  version "1.9.0"
+  resolved "https://registry.yarnpkg.com/leaflet-path-transform/-/leaflet-path-transform-1.9.0.tgz#46727b6e093d27c38fb47d5ba2cc5f0407e92b44"
+  integrity sha512-QhTwoO4/ycaH5o4b/8OFNpzBXMnTQpWyI6BkkO0IyNrmgHkGMFlW7cQR5E3khrQE1NEFL2/VERD9ettGi/DWnw==
+  dependencies:
+    leaflet-path-drag "1.9.5"
+
 leaflet.vectorgrid@^1.3.0:
   version "1.3.0"
   resolved "https://registry.yarnpkg.com/leaflet.vectorgrid/-/leaflet.vectorgrid-1.3.0.tgz#ff2deea17d06a9c6cc5e65d8c7287093950e219a"

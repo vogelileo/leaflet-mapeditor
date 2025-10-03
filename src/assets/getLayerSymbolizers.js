@@ -5,11 +5,11 @@ import * as protomapsL from 'protomaps-leaflet';
  */
 export const Colors = {
   // Vom Benutzer definierte Farben
-  land: '#F2F4F5', // Wiesen/Flächen (landcover/general)
-  forest: '#C2DCB6', // Wälder (landcover class=wood)
+  land: '#F2F4F5', // Wiesen/Flächen (landcover/general) c
+  forest: '#C3DDAE', // Wälder (landcover class=wood)
   building: '#000000', // Häuser/Gebäude (Polygon fill)
-  waterway: '#348CC3', // Bachkonturen (Line color)
-  water: '#A0D3FF', // Flussmitte/Seen (Polygon fill)
+  waterway: 'rgb(77, 164, 218)', // Bachkonturen (Line color) c
+  water: '#D3EEFF', // Flussmitte/Seen (Polygon fill) c
   transportationMotorway: '#FABE37', // Autobahn-Kern
   railway: '#C81C1C', // Bahnlinien
   contour: '#E0A360', // Helles Orange/Braun für Höhenlinien
@@ -20,7 +20,6 @@ export const Colors = {
   transportationMinor: '#000000', // Feldwege (Als einfache Linie)
 
   // Ergänzte neutrale Farben für den Rest der Karte
-  landuse: '#E8F3E0',
   park: '#C2DCB6',
   poi: '#ff6666',
   mountain: '#b0b0b0',
@@ -59,12 +58,6 @@ export function getPaintRules() {
       symbolizer: new protomapsL.PolygonSymbolizer({ fill: Colors.park }),
       sort: -4,
       minZoom: 9,
-    },
-    {
-      dataLayer: 'landuse',
-      symbolizer: new protomapsL.PolygonSymbolizer({ fill: Colors.landuse }),
-      sort: -3,
-      minZoom: 10,
     },
 
     {
