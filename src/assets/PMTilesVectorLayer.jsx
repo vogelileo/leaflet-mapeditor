@@ -7,7 +7,6 @@ import { MAX_DATA_ZOOM } from './MapConfig';
 
 const PMTilesVectorLayer = ({ url, flavor, attribution, minZoom, maxZoom }) => {
   const context = useLeafletContext();
-
   useEffect(() => {
     const map = context.map;
     const layer = protomapsL.leafletLayer({

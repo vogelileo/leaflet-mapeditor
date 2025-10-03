@@ -7,6 +7,7 @@ import {
   Polyline,
   Circle,
   FeatureGroup,
+  useMap,
 } from 'react-leaflet';
 import { EditControl } from 'react-leaflet-draw';
 import L from 'leaflet';
@@ -22,6 +23,8 @@ import {
   pmtilesPath,
 } from './MapConfig';
 import PMTilesVectorLayer from './PMTilesVectorLayer';
+import FeaturePopup from './FeaturePopup';
+import { v4 as uuidv4 } from 'uuid';
 
 export default function Map() {
   const { features, addFeature, updateFeature, removeFeature } = useMapStore();
@@ -29,7 +32,9 @@ export default function Map() {
 
   const onCreated = (e) => {
     const layer = e.layer;
-    const id = layer._leaflet_id.toString();
+    const customId = uuidv4(); // ✅ stable ID
+    layer.options.customId = customId; // ✅ attach to the layer
+
     let type = 'marker';
     let coords;
 
@@ -47,29 +52,33 @@ export default function Map() {
     }
 
     addFeature({
-      id,
+      id: customId,
       type,
       coordinates: coords,
       layerGroup: 'default',
       visible: true,
-      name: '',
+      name: `${type} ${customId}`,
       description: '',
     });
+
+    featureGroupRef.current.removeLayer(layer);
   };
 
   const onEdited = (e) => {
     e.layers.eachLayer((layer) => {
-      const id = layer._leaflet_id.toString();
-      if (
-        layer instanceof L.Marker ||
-        layer instanceof L.Polygon ||
-        layer instanceof L.Polyline
-      ) {
-        updateFeature(id, {
-          coordinates: layer.getLatLngs
-            ? layer.getLatLngs()
-            : layer.getLatLng(),
-        });
+      const id = layer.options.customId;
+      if (!id) {
+        console.warn('Edited layer has no customId, skipping update', layer);
+        return;
+      }
+      console.log(id, {
+        coordinates: { lat: layer.getLatLng(), radius: layer.getRadius() },
+      });
+
+      if (layer instanceof L.Marker) {
+        updateFeature(id, { coordinates: layer.getLatLng() });
+      } else if (layer instanceof L.Polygon || layer instanceof L.Polyline) {
+        updateFeature(id, { coordinates: layer.getLatLngs() });
       } else if (layer instanceof L.Circle) {
         updateFeature(id, {
           coordinates: { lat: layer.getLatLng(), radius: layer.getRadius() },
@@ -79,7 +88,10 @@ export default function Map() {
   };
 
   const onDeleted = (e) => {
-    e.layers.eachLayer((layer) => removeFeature(layer._leaflet_id.toString()));
+    e.layers.eachLayer((layer) => {
+      const id = layer.options.customId;
+      if (id) removeFeature(id);
+    });
   };
 
   return (
@@ -88,7 +100,7 @@ export default function Map() {
       zoom={initialZoom}
       minZoom={pmtilesMinZoom}
       maxZoom={pmtilesMaxZoom}
-      style={{ height: '100vh', width: '100%' }}
+      style={{ height: '80vh', width: '100%' }}
     >
       {/* <TileLayer url='https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png' /> */}
       <PMTilesVectorLayer
@@ -99,40 +111,60 @@ export default function Map() {
         maxZoom={pmtilesMaxZoom}
       />
       <FeatureGroup ref={featureGroupRef}>
-        {featureGroupRef.current && (
-          <EditControl
-            position='topright'
-            featureGroup={featureGroupRef.current} // <- pass the actual Leaflet FeatureGroup
-            onCreated={onCreated}
-            onEdited={onEdited}
-            onDeleted={onDeleted}
-            draw={{ rectangle: false, circlemarker: false }}
-          />
-        )}
+        <EditControl
+          position='topright'
+          featureGroup={featureGroupRef.current} // <- pass the actual Leaflet FeatureGroup
+          onCreated={onCreated}
+          onEdited={onEdited}
+          onDeleted={onDeleted}
+          draw={{ rectangle: false, circlemarker: false }}
+          edit={{
+            moveMarkers: true, // allows vertices to be dragged
+            poly: { allowIntersection: false },
+          }}
+        />
 
         {/* Render your features inside the FeatureGroup */}
+        {console.log('features in map:', features)}
         {features.map(
           (f) =>
             f.visible &&
             (f.type === 'marker' ? (
               <Marker key={f.id} position={f.coordinates}>
-                <Popup>{f.name || 'Unnamed marker'}</Popup>
+                <Popup>
+                  <FeaturePopup feature={f} />
+                </Popup>
               </Marker>
             ) : f.type === 'polygon' ? (
-              <Polygon key={f.id} positions={f.coordinates}>
-                <Popup>{f.name}</Popup>
+              <Polygon
+                key={f.id}
+                positions={f.coordinates}
+                pathOptions={{ color: f.color || '#3388ff' }}
+              >
+                <Popup>
+                  <FeaturePopup feature={f} />
+                </Popup>
               </Polygon>
             ) : f.type === 'line' ? (
-              <Polyline key={f.id} positions={f.coordinates}>
-                <Popup>{f.name}</Popup>
+              <Polyline
+                key={f.id}
+                positions={f.coordinates}
+                pathOptions={{ color: f.color || '#3388ff' }}
+              >
+                <Popup>
+                  <FeaturePopup feature={f} />
+                </Popup>
               </Polyline>
             ) : f.type === 'circle' ? (
               <Circle
                 key={f.id}
                 center={f.coordinates.lat}
                 radius={f.coordinates.radius}
+                pathOptions={{ color: f.color || '#3388ff' }}
               >
-                <Popup>{f.name}</Popup>
+                <Popup>
+                  <FeaturePopup feature={f} />
+                </Popup>
               </Circle>
             ) : null)
         )}
